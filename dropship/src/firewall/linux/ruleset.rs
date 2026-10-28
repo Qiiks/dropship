@@ -189,18 +189,52 @@ mod tests {
             Err(e) => panic!("failed to start nft: {e}"),
         };
 
+        let rules = format!("{}{}", ruleset.base, ruleset.rules);
+
         child
             .stdin
             .take()
             .unwrap()
-            .write_all(format!("{}{}", ruleset.base, ruleset.rules).as_bytes())
+            .write_all(rules.as_bytes())
             .unwrap();
 
         let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        if output.status.success() {
+            return;
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        // an unprivileged runner cannot read the netlink cache; retry in a user namespace
+        if stderr.contains("Operation not permitted") || stderr.contains("cache initialization failed") {
+            let retry = Command::new("unshare")
+                .args(["-Urn", "nft", "-c", "-f", "-"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn();
+
+            let Ok(mut retry) = retry else {
+                eprintln!("skipping nft check: {stderr}");
+                return;
+            };
+
+            retry.stdin.take().unwrap().write_all(rules.as_bytes()).unwrap();
+            let output = retry.wait_with_output().unwrap();
+            if output.status.success() {
+                return;
+            }
+
+            let retry_stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            assert!(
+                retry_stderr.contains("Operation not permitted") || retry_stderr.contains("unshare failed"),
+                "{}",
+                retry_stderr
+            );
+            eprintln!("skipping nft check: a user namespace is not permitted here");
+            return;
+        }
+
+        panic!("{stderr}");
     }
 }
