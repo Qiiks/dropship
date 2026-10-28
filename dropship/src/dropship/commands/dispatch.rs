@@ -16,7 +16,12 @@ pub fn start_processing_commands(
     //
     firewall_session: Arc<Mutex<Option<firewall::Session>>>,
 ) {
-    tokio::spawn(background_task(commands_rx, events_tx, ctx, firewall_session));
+    tokio::spawn(background_task(
+        commands_rx,
+        events_tx,
+        ctx,
+        firewall_session,
+    ));
 }
 
 async fn background_task(
@@ -176,10 +181,7 @@ async fn background_task(
 
                     match &mut *guard {
                         Some(session) => {
-                            match session
-                                .apply(&blocked_servers, &already_known_paths)
-                                .await
-                            {
+                            match session.apply(&blocked_servers, &already_known_paths).await {
                                 Ok(affected_paths) => {
                                     let _ = events_tx
                                         .send(Event::FoundApplicationPaths(affected_paths));

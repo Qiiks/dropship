@@ -16,9 +16,9 @@ mod logger;
 mod ping;
 mod ping_icon;
 mod process;
+mod theme;
 mod update;
 mod visuals;
-mod theme;
 
 mod overwatch;
 

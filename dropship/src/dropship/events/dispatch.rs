@@ -183,7 +183,10 @@ fn task(
                             match crate::firewall::legacy::delete_legacy_rules() {
                                 Ok(_) => (),
                                 Err(e) => {
-                                    log::error!("failed to delete legacy rules. ({})", e.to_string());
+                                    log::error!(
+                                        "failed to delete legacy rules. ({})",
+                                        e.to_string()
+                                    );
                                 }
                             }
 

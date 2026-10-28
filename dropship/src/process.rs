@@ -54,11 +54,7 @@ pub async fn is_process_running(process_name: &String) -> Result<(bool, Option<P
 }
 
 #[cfg_attr(target_os = "windows", allow(dead_code))]
-fn process_matches(
-    process_name: &str,
-    name: &std::ffi::OsStr,
-    cmd: &[std::ffi::OsString],
-) -> bool {
+fn process_matches(process_name: &str, name: &std::ffi::OsStr, cmd: &[std::ffi::OsString]) -> bool {
     if name.to_string_lossy().eq_ignore_ascii_case(process_name) {
         return true;
     }
