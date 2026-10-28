@@ -12,12 +12,17 @@ pub mod legacy;
 #[cfg(target_os = "windows")]
 pub mod applications;
 
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
+
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 compile_error!("dropship supports windows and linux");
 
 pub(crate) enum Session {
     #[cfg(target_os = "windows")]
     Windows(win::Session),
+    #[cfg(target_os = "linux")]
+    Linux(linux::Session),
 }
 
 impl Session {
@@ -29,8 +34,7 @@ impl Session {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = dynamic;
-            Err("the linux firewall backend lands in the next pull request".to_string())
+            linux::Session::connect(dynamic).await.map(Self::Linux)
         }
     }
 
@@ -44,8 +48,9 @@ impl Session {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = dynamic;
-            Err("the linux firewall backend lands in the next pull request".to_string())
+            match self {
+                Self::Linux(session) => session.set_dynamic(dynamic).await,
+            }
         }
     }
 
@@ -63,10 +68,21 @@ impl Session {
 
         #[cfg(target_os = "linux")]
         {
-            let _ = (blocked, known);
-            Err("the linux firewall backend lands in the next pull request".to_string())
+            match self {
+                Self::Linux(session) => session.apply(blocked, known).await,
+            }
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn persistent_supported() -> bool {
+    linux::persistent_supported()
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn run_firewall_helper() -> i32 {
+    linux::helper::run()
 }
 
 #[cfg(target_os = "windows")]
