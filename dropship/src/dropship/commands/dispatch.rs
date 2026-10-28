@@ -170,6 +170,7 @@ async fn background_task(
             Command::ApplyFirewallConfig {
                 blocked_servers,
                 already_known_paths,
+                dynamic,
             } => {
                 // FIXME probably should have a rc so it can't conflict state and infinitely think it's loading
                 // if the queue is drained out of order :<
@@ -178,6 +179,19 @@ async fn background_task(
                 let firewall_session = firewall_session.clone();
                 tokio::spawn(async move {
                     let mut guard = firewall_session.lock().await;
+
+                    // another instance may have held the lock at startup; retry now
+                    if guard.is_none() {
+                        match firewall::Session::connect(dynamic).await {
+                            Ok(session) => {
+                                log::debug!("connected to firewall backend. dynamic: {dynamic}");
+                                *guard = Some(session);
+                            }
+                            Err(e) => {
+                                log::debug!("could not open the firewall session yet ({})", e)
+                            }
+                        }
+                    }
 
                     match &mut *guard {
                         Some(session) => {

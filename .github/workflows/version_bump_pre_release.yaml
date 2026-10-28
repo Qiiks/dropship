@@ -14,6 +14,7 @@ env:
   AWS_LC_SYS_PREBUILT_NASM: "1"
   AWS_LC_SYS_CMAKE_BUILDER: "0"
   DROPSHIP_UPDATE_URI: https://api.github.com/repos/${{ github.repository }}/releases/latest
+  DROPSHIP_SOURCE_URI: https://github.com/${{ github.repository }}
 
 jobs:
   release:

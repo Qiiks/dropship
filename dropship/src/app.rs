@@ -797,6 +797,7 @@ impl TemplateApp {
         known_servers: &[KnownServer],
         already_known_paths: &Option<HashSet<PathBuf>>,
         commands_tx: &UnboundedSender<dropship::Command>,
+        dynamic: bool,
     ) {
         let blocked_servers = known_servers
             .iter()
@@ -809,6 +810,7 @@ impl TemplateApp {
         let _ = commands_tx.send(dropship::Command::ApplyFirewallConfig {
             blocked_servers,
             already_known_paths,
+            dynamic,
         });
     }
 
@@ -818,6 +820,7 @@ impl TemplateApp {
             self.known_servers(),
             &self.config.known_paths,
             &self.commands_tx,
+            self.config.wfp_dynamic_session,
         );
     }
 
@@ -838,6 +841,7 @@ impl TemplateApp {
             self.known_servers(),
             &self.config.known_paths,
             &self.commands_tx,
+            self.config.wfp_dynamic_session,
         );
     }
 

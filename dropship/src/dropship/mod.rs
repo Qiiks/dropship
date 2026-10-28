@@ -21,7 +21,10 @@ pub const UPDATE_URI: &str = match option_env!("DROPSHIP_UPDATE_URI") {
     Some(uri) => uri,
     None => "https://api.github.com/repos/stowmyy/dropship/releases/latest",
 };
-pub const GITHUB_URI: &str = "https://github.com/stowmyy/dropship";
+pub const GITHUB_URI: &str = match option_env!("DROPSHIP_SOURCE_URI") {
+    Some(uri) => uri,
+    None => "https://github.com/stowmyy/dropship",
+};
 #[cfg(target_os = "windows")]
 pub const BINARY_NAME: &str = "dropship.exe";
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
