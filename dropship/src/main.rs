@@ -34,6 +34,11 @@ async fn main() -> eframe::Result {
         return Ok(());
     }
 
+    #[cfg(target_os = "linux")]
+    if std::env::args().any(|a| a == "--firewall-helper") {
+        std::process::exit(crate::firewall::run_firewall_helper());
+    }
+
     // let mut initialization_errors = vec![];
 
     // need this so winit does not steal the com mode and make it not multithreaded

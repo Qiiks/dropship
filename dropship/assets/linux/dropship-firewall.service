@@ -1,0 +1,12 @@
+[Unit]
+Description=dropship server blocks
+ConditionPathExists=/var/lib/dropship/blocked.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/bin/env nft delete table inet dropship
+ExecStart=/usr/bin/env nft -f /var/lib/dropship/blocked.nft
+
+[Install]
+WantedBy=multi-user.target

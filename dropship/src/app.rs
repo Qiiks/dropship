@@ -711,7 +711,7 @@ impl eframe::App for TemplateApp {
 
                     #[cfg(target_os = "linux")]
                     {
-                        ui.label("linux firewall support lands in the next pull request");
+                        ui.label("this configuration is applied to everything running as your user. you do not need to keep this window open.");
                     }
                 });
 
@@ -2198,6 +2198,14 @@ impl TemplateApp {
                 ui.selectable_value(&mut self.config.wfp_dynamic_session, false, name(false));
                 ui.selectable_value(&mut self.config.wfp_dynamic_session, true, name(true));
             });
+
+        #[cfg(target_os = "linux")]
+        if !firewall::persistent_supported() {
+            ui.colored_label(
+                ui.style().visuals.weak_text_color(),
+                "blocks only persist across restarts on systems with systemd",
+            );
+        }
 
         if self.config.wfp_dynamic_session != before {
             self.apply_firewall_session();
