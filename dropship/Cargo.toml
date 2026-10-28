@@ -12,6 +12,8 @@ eframe = { version = "0.36.1", default-features = false, features = [
     # "default_fonts",
     "glow",
     "persistence",
+    "wayland",
+    "x11",
 ] }
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
