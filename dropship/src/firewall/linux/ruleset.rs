@@ -143,9 +143,7 @@ mod tests {
 
     #[test]
     fn host_bits_are_truncated() {
-        let ruleset = generate(&blocks(&["5.42.0.1/16"]), 1000)
-            .unwrap()
-            .unwrap();
+        let ruleset = generate(&blocks(&["5.42.0.1/16"]), 1000).unwrap().unwrap();
 
         assert_eq!(
             ruleset.rules,
@@ -206,7 +204,9 @@ mod tests {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         // an unprivileged runner cannot read the netlink cache; retry in a user namespace
-        if stderr.contains("Operation not permitted") || stderr.contains("cache initialization failed") {
+        if stderr.contains("Operation not permitted")
+            || stderr.contains("cache initialization failed")
+        {
             let retry = Command::new("unshare")
                 .args(["-Urn", "nft", "-c", "-f", "-"])
                 .stdin(Stdio::piped())
@@ -219,7 +219,12 @@ mod tests {
                 return;
             };
 
-            retry.stdin.take().unwrap().write_all(rules.as_bytes()).unwrap();
+            retry
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(rules.as_bytes())
+                .unwrap();
             let output = retry.wait_with_output().unwrap();
             if output.status.success() {
                 return;
@@ -227,7 +232,8 @@ mod tests {
 
             let retry_stderr = String::from_utf8_lossy(&output.stderr).to_string();
             assert!(
-                retry_stderr.contains("Operation not permitted") || retry_stderr.contains("unshare failed"),
+                retry_stderr.contains("Operation not permitted")
+                    || retry_stderr.contains("unshare failed"),
                 "{}",
                 retry_stderr
             );

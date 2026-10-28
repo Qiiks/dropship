@@ -103,9 +103,9 @@ impl Session {
                 }
             }
             Ok(response) => {
-                let error = response
-                    .error
-                    .unwrap_or_else(|| "the firewall helper rejected the hello request".to_string());
+                let error = response.error.unwrap_or_else(|| {
+                    "the firewall helper rejected the hello request".to_string()
+                });
                 session.shutdown().await;
                 return Err(error);
             }
@@ -168,7 +168,10 @@ impl Session {
     async fn shutdown(&mut self) {
         self.stdin.take();
 
-        if tokio::time::timeout(TIMEOUT, self.child.wait()).await.is_err() {
+        if tokio::time::timeout(TIMEOUT, self.child.wait())
+            .await
+            .is_err()
+        {
             let _ = self.child.kill().await;
             let _ = self.child.wait().await;
         }
