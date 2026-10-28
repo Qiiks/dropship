@@ -41,7 +41,7 @@ OW2 // DROPSHIP
 3. **block** the servers you **don't** want to play on
 4. done! you can close the app now. blocking servers persists until you unblock them. there is also an option to only have these blocks while the app is open
 
-linux: download dropship-linux-x86_64, chmod +x, run it. requires nftables and polkit; systemd is needed for blocks to survive a reboot.
+linux: download dropship-linux-x86_64, chmod +x, run it. requires nftables and polkit; systemd is needed for blocks to survive a reboot. on first run it installs its own desktop entry and icon (`~/.local/share/applications/dropship.desktop`), so the taskbar can show the app icon on wayland.
 
 ## warnings
 > [!IMPORTANT]

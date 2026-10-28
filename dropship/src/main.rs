@@ -10,6 +10,8 @@ mod api;
 mod app;
 mod assets;
 mod components;
+#[cfg(target_os = "linux")]
+mod desktop_entry;
 mod dropship;
 mod firewall;
 mod logger;
@@ -38,6 +40,9 @@ async fn main() -> eframe::Result {
     if std::env::args().any(|a| a == "--firewall-helper") {
         std::process::exit(crate::firewall::run_firewall_helper());
     }
+
+    #[cfg(target_os = "linux")]
+    desktop_entry::ensure();
 
     // let mut initialization_errors = vec![];
 
