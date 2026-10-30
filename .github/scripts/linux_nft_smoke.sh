@@ -134,16 +134,22 @@ done
 [ -f "$WORK/listener.ready" ] || fail "listener did not start on port $PORT"
 
 probe() {
-  setpriv --reuid="$TARGET_UID" --regid="$TARGET_UID" --clear-groups python3 - "$1" "$PORT" "$2" "$CGROUP" <<'PY'
+  # the real path is `dropship launch`, which joins before exec; here root
+  # places the probe in the cgroup and then drops to the target uid, since a
+  # user outside the user-manager subtree cannot move its own process
+  python3 - "$1" "$PORT" "$2" "$TARGET_UID" "$CGROUP" <<'PY'
 import os, socket, sys
 
-host, port, join, cgroup = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "join", sys.argv[4]
+host, port, join, uid, cgroup = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "join", int(sys.argv[4]), sys.argv[5]
 if join:
     with open(cgroup + "/cgroup.procs", "w") as procs:
         procs.write(str(os.getpid()))
 
-family = socket.AF_INET6 if ":" in host else socket.AF_INET
-sock = socket.socket(family, socket.SOCK_STREAM)
+os.setgroups([])
+os.setgid(uid)
+os.setuid(uid)
+
+sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
 sock.settimeout(3)
 try:
     sock.connect((host, port))
