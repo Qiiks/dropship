@@ -14,7 +14,11 @@ pub(crate) const BASE: &str = concat!(
     "}\n",
 );
 
-pub(crate) fn generate(blocks: &[String], uid: u32) -> Result<Option<Ruleset>, String> {
+pub(crate) fn generate(
+    blocks: &[String],
+    cgroup: &str,
+    level: u32,
+) -> Result<Option<Ruleset>, String> {
     let mut v4 = Vec::new();
     let mut v6 = Vec::new();
 
@@ -44,13 +48,13 @@ pub(crate) fn generate(blocks: &[String], uid: u32) -> Result<Option<Ruleset>, S
     let mut rules = String::new();
     if !v4.is_empty() {
         rules.push_str(&format!(
-            "add rule inet dropship output meta skuid {uid} ip daddr {{ {} }} counter drop\n",
+            "add rule inet dropship output socket cgroupv2 level {level} \"{cgroup}\" ip daddr {{ {} }} counter drop\n",
             v4.join(", ")
         ));
     }
     if !v6.is_empty() {
         rules.push_str(&format!(
-            "add rule inet dropship output meta skuid {uid} ip6 daddr {{ {} }} counter drop\n",
+            "add rule inet dropship output socket cgroupv2 level {level} \"{cgroup}\" ip6 daddr {{ {} }} counter drop\n",
             v6.join(", ")
         ));
     }
@@ -74,55 +78,59 @@ mod tests {
 
     #[test]
     fn v4_only() {
-        let ruleset = generate(&blocks(&["64.224.26.0/23"]), 1000)
+        let ruleset = generate(&blocks(&["64.224.26.0/23"]), "dropship-game", 1)
             .unwrap()
             .unwrap();
 
         assert_eq!(ruleset.base, BASE);
         assert_eq!(
             ruleset.rules,
-            "add rule inet dropship output meta skuid 1000 ip daddr { 64.224.26.0/23 } counter drop\n"
+            "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip daddr { 64.224.26.0/23 } counter drop\n"
         );
     }
 
     #[test]
     fn v6_only() {
-        let ruleset = generate(&blocks(&["2600:1f18::/32"]), 1000)
+        let ruleset = generate(&blocks(&["2600:1f18::/32"]), "dropship-game", 1)
             .unwrap()
             .unwrap();
 
         assert_eq!(ruleset.base, BASE);
         assert_eq!(
             ruleset.rules,
-            "add rule inet dropship output meta skuid 1000 ip6 daddr { 2600:1f18::/32 } counter drop\n"
+            "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip6 daddr { 2600:1f18::/32 } counter drop\n"
         );
     }
 
     #[test]
     fn both_families() {
-        let ruleset = generate(&blocks(&["64.224.26.0/23", "2600:1f18::/32"]), 1000)
-            .unwrap()
-            .unwrap();
+        let ruleset = generate(
+            &blocks(&["64.224.26.0/23", "2600:1f18::/32"]),
+            "dropship-game",
+            1,
+        )
+        .unwrap()
+        .unwrap();
 
         assert_eq!(ruleset.base, BASE);
         assert_eq!(
             ruleset.rules,
             concat!(
-                "add rule inet dropship output meta skuid 1000 ip daddr { 64.224.26.0/23 } counter drop\n",
-                "add rule inet dropship output meta skuid 1000 ip6 daddr { 2600:1f18::/32 } counter drop\n",
+                "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip daddr { 64.224.26.0/23 } counter drop\n",
+                "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip6 daddr { 2600:1f18::/32 } counter drop\n",
             )
         );
     }
 
     #[test]
     fn comma_separated() {
-        let ruleset = generate(&blocks(&["5.42.0.0/16,64.224.26.0/23"]), 1000)
+        let ruleset = generate(&blocks(&["5.42.0.0/16,64.224.26.0/23"]), "dropship-game", 1)
             .unwrap()
             .unwrap();
 
         assert_eq!(
             ruleset.rules,
-            "add rule inet dropship output meta skuid 1000 ip daddr { 5.42.0.0/16, 64.224.26.0/23 } counter drop\n"
+            "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip daddr { 5.42.0.0/16, 64.224.26.0/23 } counter drop\n"
         );
     }
 
@@ -130,30 +138,37 @@ mod tests {
     fn duplicates_are_dropped() {
         let ruleset = generate(
             &blocks(&["5.42.0.0/16", "5.42.0.0/16", "5.42.0.0/16,5.42.0.0/16"]),
-            1000,
+            "dropship-game",
+            1,
         )
         .unwrap()
         .unwrap();
 
         assert_eq!(
             ruleset.rules,
-            "add rule inet dropship output meta skuid 1000 ip daddr { 5.42.0.0/16 } counter drop\n"
+            "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip daddr { 5.42.0.0/16 } counter drop\n"
         );
     }
 
     #[test]
     fn host_bits_are_truncated() {
-        let ruleset = generate(&blocks(&["5.42.0.1/16"]), 1000).unwrap().unwrap();
+        let ruleset = generate(&blocks(&["5.42.0.1/16"]), "dropship-game", 1)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             ruleset.rules,
-            "add rule inet dropship output meta skuid 1000 ip daddr { 5.42.0.0/16 } counter drop\n"
+            "add rule inet dropship output socket cgroupv2 level 1 \"dropship-game\" ip daddr { 5.42.0.0/16 } counter drop\n"
         );
     }
 
     #[test]
     fn invalid_network_errors() {
-        let error = match generate(&blocks(&["5.42.0.0/16", "not-a-network"]), 1000) {
+        let error = match generate(
+            &blocks(&["5.42.0.0/16", "not-a-network"]),
+            "dropship-game",
+            1,
+        ) {
             Err(e) => e,
             Ok(_) => panic!("expected an error"),
         };
@@ -163,14 +178,18 @@ mod tests {
 
     #[test]
     fn empty_input_is_none() {
-        assert!(generate(&[], 1000).unwrap().is_none());
+        assert!(generate(&[], "dropship-game", 1).unwrap().is_none());
     }
 
     #[test]
     fn nft_accepts_the_ruleset() {
-        let ruleset = generate(&blocks(&["64.224.26.0/23", "2600:1f18::/32"]), 1000)
-            .unwrap()
-            .unwrap();
+        let ruleset = generate(
+            &blocks(&["64.224.26.0/23", "2600:1f18::/32"]),
+            "dropship-game",
+            1,
+        )
+        .unwrap()
+        .unwrap();
 
         let mut child = match Command::new("nft")
             .args(["-c", "-f", "-"])
@@ -187,7 +206,15 @@ mod tests {
             Err(e) => panic!("failed to start nft: {e}"),
         };
 
-        let rules = format!("{}{}", ruleset.base, ruleset.rules);
+        let mut rules = format!("{}{}", ruleset.base, ruleset.rules);
+
+        // nft resolves a cgroup path to an id at load time, so without the
+        // real directory only the rest of the ruleset can be checked
+        let cgroup = "/sys/fs/cgroup/dropship-game";
+        if !std::path::Path::new(cgroup).exists() && std::fs::create_dir(cgroup).is_err() {
+            eprintln!("note: {cgroup} is missing; checking without the cgroup match");
+            rules = rules.replace("socket cgroupv2 level 1 \"dropship-game\"", "meta skuid 0");
+        }
 
         child
             .stdin

@@ -3,6 +3,7 @@
 pub(crate) enum Request {
     Hello { dynamic: bool, uid: u32 },
     Apply { blocks: Vec<String>, persist: bool },
+    EnsureScope { uid: u32 },
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]

@@ -42,6 +42,15 @@ async fn main() -> eframe::Result {
     }
 
     #[cfg(target_os = "linux")]
+    if std::env::args().nth(1).as_deref() == Some("launch") {
+        let mut argv: Vec<String> = std::env::args().skip(2).collect();
+        if argv.first().map(String::as_str) == Some("--") {
+            argv.remove(0);
+        }
+        std::process::exit(crate::firewall::launch(argv).await);
+    }
+
+    #[cfg(target_os = "linux")]
     desktop_entry::ensure();
 
     // let mut initialization_errors = vec![];

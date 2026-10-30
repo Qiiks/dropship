@@ -9,6 +9,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use crate::api;
 
 pub(crate) mod helper;
+pub(crate) mod launch;
 
 mod protocol;
 mod ruleset;
@@ -120,6 +121,22 @@ impl Session {
 
     pub(crate) async fn set_dynamic(&mut self, dynamic: bool) -> Result<(), String> {
         self.dynamic = dynamic;
+        Ok(())
+    }
+
+    pub(crate) async fn ensure_scope(&mut self) -> Result<(), String> {
+        let request = Request::EnsureScope {
+            uid: unsafe { libc::getuid() },
+        };
+
+        let response = self.round_trip(&request).await?;
+
+        if !response.ok {
+            return Err(response.error.unwrap_or_else(|| {
+                "the firewall helper could not create the game cgroup".to_string()
+            }));
+        }
+
         Ok(())
     }
 

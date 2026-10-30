@@ -711,7 +711,7 @@ impl eframe::App for TemplateApp {
 
                     #[cfg(target_os = "linux")]
                     {
-                        ui.label("this configuration is applied to everything running as your user. you do not need to keep this window open.");
+                        ui.label("this configuration only applies to a game launched through dropship (dropship launch -- %command%). everything else running as your user is unaffected. you do not need to keep this window open.");
                     }
                 });
 

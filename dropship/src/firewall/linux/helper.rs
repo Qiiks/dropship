@@ -13,6 +13,24 @@ const UNIT_PATH: &str = "/etc/systemd/system/dropship-firewall.service";
 const UNIT_NAME: &str = "dropship-firewall.service";
 const UNIT: &str = include_str!("../../../assets/linux/dropship-firewall.service");
 
+// one cgroup under the user manager holds the game and the rules match it, so
+// the block follows the game instead of every socket the user owns. it lives
+// in the user's own subtree because a cgroup the user owns is the only one the
+// kernel lets them join without root
+pub(crate) const CGROUP_NAME: &str = "dropship-game";
+
+pub(crate) fn cgroup_rel_path(uid: u32) -> String {
+    format!("user.slice/user-{uid}.slice/user@{uid}.service/{CGROUP_NAME}")
+}
+
+pub(crate) fn cgroup_level(rel_path: &str) -> u32 {
+    rel_path.split('/').count() as u32
+}
+
+pub(crate) fn cgroup_dir(uid: u32) -> PathBuf {
+    PathBuf::from("/sys/fs/cgroup").join(cgroup_rel_path(uid))
+}
+
 const NFT_PATHS: [&str; 4] = ["/usr/sbin/nft", "/usr/bin/nft", "/sbin/nft", "/bin/nft"];
 const SYSTEMCTL_PATHS: [&str; 2] = ["/usr/bin/systemctl", "/bin/systemctl"];
 
@@ -73,6 +91,10 @@ pub(crate) fn run() -> i32 {
         let _ = helper.run_nft_args(&["delete", "table", "inet", "dropship"]);
     }
 
+    if !helper.last_persist {
+        helper.remove_cgroup();
+    }
+
     0
 }
 
@@ -89,6 +111,7 @@ impl Helper {
         match request {
             Request::Hello { dynamic, uid } => self.hello(dynamic, uid),
             Request::Apply { blocks, persist } => self.apply(&blocks, persist),
+            Request::EnsureScope { uid } => self.ensure_scope(uid),
         }
     }
 
@@ -122,7 +145,10 @@ impl Helper {
     }
 
     fn apply(&mut self, blocks: &[String], persist: bool) -> Response {
-        let ruleset = match ruleset::generate(blocks, self.uid) {
+        let cgroup = cgroup_rel_path(self.uid);
+        let level = cgroup_level(&cgroup);
+
+        let ruleset = match ruleset::generate(blocks, &cgroup, level) {
             Ok(ruleset) => ruleset,
             Err(e) => return failure(e),
         };
@@ -130,6 +156,12 @@ impl Helper {
         let Some(ruleset) = ruleset else {
             return self.clear();
         };
+
+        // nft resolves the cgroup path when the rule loads, so the directory
+        // has to exist before the block goes in
+        if let Err(e) = self.ensure_cgroup() {
+            return failure(e);
+        }
 
         if let Err(e) = self.run_batch(&ruleset.base) {
             return failure(e);
@@ -162,6 +194,8 @@ impl Helper {
             }
         }
 
+        self.remove_cgroup();
+
         self.last_persist = false;
 
         Response {
@@ -169,6 +203,61 @@ impl Helper {
             warning: self.clear_persistence().err(),
             error: None,
         }
+    }
+
+    fn ensure_scope(&mut self, uid: u32) -> Response {
+        self.uid = target_uid(uid);
+
+        match self.ensure_cgroup() {
+            Ok(()) => Response {
+                ok: true,
+                warning: None,
+                error: None,
+            },
+            Err(e) => failure(e),
+        }
+    }
+
+    fn ensure_cgroup(&self) -> Result<(), String> {
+        let dir = cgroup_dir(self.uid);
+        if !dir.exists() {
+            std::fs::create_dir(&dir)
+                .map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
+        }
+
+        let procs = dir.join("cgroup.procs");
+        let Ok(path) = std::ffi::CString::new(procs.to_string_lossy().as_bytes()) else {
+            return Err("the cgroup path contains a null byte".to_string());
+        };
+
+        // the desktop user joins the game here; root owns the directory so the
+        // user cannot move the cgroup or add one underneath it
+        unsafe {
+            if libc::chown(path.as_ptr(), self.uid, 0) != 0 {
+                return Err(format!(
+                    "failed to hand {} to uid {}: {}",
+                    procs.display(),
+                    self.uid,
+                    std::io::Error::last_os_error()
+                ));
+            }
+
+            if libc::chmod(path.as_ptr(), 0o620) != 0 {
+                return Err(format!(
+                    "failed to make {} writable by the user: {}",
+                    procs.display(),
+                    std::io::Error::last_os_error()
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn remove_cgroup(&self) {
+        // a running game keeps the directory busy, which is fine: the table is
+        // already gone, so nothing points at it
+        let _ = std::fs::remove_dir(cgroup_dir(self.uid));
     }
 
     fn persist(&mut self, ruleset: &Ruleset) -> Result<(), String> {
@@ -182,13 +271,14 @@ impl Helper {
         write_state_file(&content)
             .map_err(|e| format!("blocks are active but will not survive a reboot: {e}"))?;
 
+        let unit = UNIT.replace("%UID%", &self.uid.to_string());
         let changed = match std::fs::read_to_string(UNIT_PATH) {
-            Ok(existing) => existing != UNIT,
+            Ok(existing) => existing != unit,
             Err(_) => true,
         };
 
         if changed {
-            std::fs::write(UNIT_PATH, UNIT)
+            std::fs::write(UNIT_PATH, unit)
                 .map_err(|e| format!("blocks are active but will not survive a reboot: {e}"))?;
             run_systemctl(&systemctl, &["daemon-reload"])
                 .map_err(|e| format!("blocks are active but will not survive a reboot: {e}"))?;
@@ -366,7 +456,7 @@ fn write_response(response: &Response) {
 
 #[cfg(test)]
 mod tests {
-    use super::{STATE_PATH, UNIT};
+    use super::{STATE_PATH, UNIT, cgroup_dir, cgroup_level, cgroup_rel_path};
 
     #[test]
     fn unit_file_uses_the_state_path() {
@@ -375,5 +465,25 @@ mod tests {
 
         assert!(UNIT.contains(condition.as_str()));
         assert!(UNIT.contains(command.as_str()));
+    }
+
+    #[test]
+    fn cgroup_path_and_level_agree() {
+        let path = cgroup_rel_path(1000);
+
+        assert_eq!(
+            path,
+            "user.slice/user-1000.slice/user@1000.service/dropship-game"
+        );
+        assert_eq!(cgroup_level(&path), 4);
+        assert_eq!(
+            cgroup_dir(1000),
+            std::path::PathBuf::from(format!("/sys/fs/cgroup/{path}"))
+        );
+    }
+
+    #[test]
+    fn unit_file_creates_the_same_cgroup() {
+        assert!(UNIT.contains("user.slice/user-%UID%.slice/user@%UID%.service/dropship-game"));
     }
 }

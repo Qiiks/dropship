@@ -6,6 +6,8 @@ set -euo pipefail
 BIN="${DROPSHIP_BIN:-dropship/target/debug/dropship}"
 : "${TARGET_UID:?set TARGET_UID to the uid whose traffic should be blocked}"
 PORT=47831
+CGROUP_PARENT="/sys/fs/cgroup/user.slice/user-$TARGET_UID.slice/user@$TARGET_UID.service"
+CGROUP="$CGROUP_PARENT/dropship-game"
 
 WORK="$(mktemp -d)"
 FIFO="$WORK/helper.in"
@@ -40,6 +42,7 @@ cleanup() {
     wait "$LISTENER_PID" 2>/dev/null || true
   fi
   nft delete table inet dropship 2>/dev/null || true
+  rmdir "$CGROUP" 2>/dev/null || true
   rm -rf "$WORK"
   exit "$rc"
 }
@@ -50,6 +53,12 @@ trap cleanup EXIT
 
 ip link set lo up
 nft delete table inet dropship 2>/dev/null || true
+
+# mimic what systemd does for a logged-in user: the manager's cgroup is owned
+# by the user, so the helper only has to hand over cgroup.procs
+mkdir -p "$CGROUP_PARENT"
+chown "$TARGET_UID:$TARGET_UID" "$CGROUP_PARENT"
+rmdir "$CGROUP" 2>/dev/null || true
 
 # opening the fifo read/write lets us hold a writer without blocking; the
 # helper closes the inherited descriptor so our close is the only eof
@@ -125,10 +134,14 @@ done
 [ -f "$WORK/listener.ready" ] || fail "listener did not start on port $PORT"
 
 probe() {
-  setpriv --reuid="$TARGET_UID" python3 - "$1" "$PORT" <<'PY'
-import socket, sys
+  setpriv --reuid="$TARGET_UID" --regid="$TARGET_UID" --clear-groups python3 - "$1" "$PORT" "$2" "$CGROUP" <<'PY'
+import os, socket, sys
 
-host, port = sys.argv[1], int(sys.argv[2])
+host, port, join, cgroup = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "join", sys.argv[4]
+if join:
+    with open(cgroup + "/cgroup.procs", "w") as procs:
+        procs.write(str(os.getpid()))
+
 family = socket.AF_INET6 if ":" in host else socket.AF_INET
 sock = socket.socket(family, socket.SOCK_STREAM)
 sock.settimeout(3)
@@ -145,12 +158,20 @@ PY
 }
 
 for host in 127.0.0.1 ::1; do
-  result=$(probe "$host")
+  result=$(probe "$host" join)
   if [ "$result" != "timeout" ]; then
-    fail "expected a blocked connect to $host to time out, got: $result"
+    fail "expected a blocked connect from the game cgroup to $host to time out, got: $result"
   fi
 done
-echo "ok: blocked connect timed out"
+echo "ok: blocked connect from the game cgroup timed out"
+
+for host in 127.0.0.1 ::1; do
+  result=$(probe "$host" nojoin)
+  if [ "$result" != "connected" ]; then
+    fail "expected a connect from outside the cgroup to $host to succeed, got: $result"
+  fi
+done
+echo "ok: the same user outside the cgroup is unaffected"
 
 packets=$(nft -j list table inet dropship | python3 -c '
 import json, sys
@@ -178,12 +199,15 @@ if nft list table inet dropship >/dev/null 2>&1; then
 fi
 
 for host in 127.0.0.1 ::1; do
-  result=$(probe "$host")
+  result=$(probe "$host" nojoin)
   if [ "$result" != "connected" ]; then
     fail "expected a connect to $host after clearing to succeed, got: $result"
   fi
 done
-echo "ok: cleared connect succeeded"
+if [ -d "$CGROUP" ]; then
+  fail "clearing left the game cgroup behind"
+fi
+echo "ok: cleared connect succeeded and the cgroup was removed"
 
 # the listener inherited the fifo descriptor; kill it before closing the writer
 kill "$LISTENER_PID" 2>/dev/null || true

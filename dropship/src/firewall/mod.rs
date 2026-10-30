@@ -85,6 +85,11 @@ pub(crate) fn run_firewall_helper() -> i32 {
     linux::helper::run()
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) async fn launch(argv: Vec<String>) -> i32 {
+    linux::launch::run(argv).await
+}
+
 #[cfg(target_os = "windows")]
 pub const DROPSHIP_GROUP_NAME: &str = "stormy/dropship/v3";
 // pub const DROPSHIP_RULE_NAME: &str = "dropship/overwatch";
